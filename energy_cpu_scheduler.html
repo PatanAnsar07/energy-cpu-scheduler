@@ -1,0 +1,1220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Energy-Aware CPU Scheduler Simulator</title>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;600;700&family=IBM+Plex+Sans:wght@300;400;600;800&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #060a0f;
+      --bg2: #0c1219;
+      --bg3: #111923;
+      --border: rgba(255,255,255,0.07);
+      --border2: rgba(255,255,255,0.12);
+      --text: #d4dce8;
+      --muted: #5a6a7d;
+      --accent: #00e5a0;
+      --accent2: #00aaff;
+      --warn: #f59e0b;
+      --danger: #ef4444;
+      --p-core: #00e5a0;
+      --e-core: #3b82f6;
+      --font-ui: 'IBM Plex Sans', sans-serif;
+      --font-mono: 'IBM Plex Mono', monospace;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: var(--font-ui);
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* ── Grid noise background ── */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image:
+        linear-gradient(rgba(0,229,160,0.015) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(0,229,160,0.015) 1px, transparent 1px);
+      background-size: 40px 40px;
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .container { max-width: 1400px; margin: 0 auto; padding: 24px; position: relative; z-index: 1; }
+
+    /* ── Header ── */
+    header {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      align-items: start;
+      gap: 16px;
+      margin-bottom: 32px;
+      padding-bottom: 24px;
+      border-bottom: 1px solid var(--border);
+    }
+    .header-left h1 {
+      font-size: clamp(1.4rem, 3vw, 2rem);
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      color: #fff;
+      line-height: 1.1;
+    }
+    .header-left h1 span { color: var(--accent); }
+    .header-left p { color: var(--muted); font-size: 0.8rem; margin-top: 6px; font-family: var(--font-mono); }
+    .tag-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+    .tag {
+      font-family: var(--font-mono);
+      font-size: 0.65rem;
+      padding: 3px 8px;
+      border-radius: 3px;
+      border: 1px solid;
+      letter-spacing: 0.05em;
+    }
+    .tag-green { border-color: var(--accent); color: var(--accent); background: rgba(0,229,160,0.06); }
+    .tag-blue { border-color: var(--accent2); color: var(--accent2); background: rgba(0,170,255,0.06); }
+    .tag-amber { border-color: var(--warn); color: var(--warn); background: rgba(245,158,11,0.06); }
+    .tag-red { border-color: var(--danger); color: var(--danger); background: rgba(239,68,68,0.06); }
+    .header-right { display: flex; gap: 8px; flex-wrap: wrap; align-items: flex-start; justify-content: flex-end; }
+
+    /* ── Buttons ── */
+    .btn {
+      font-family: var(--font-mono);
+      font-size: 0.75rem;
+      padding: 8px 16px;
+      border-radius: 4px;
+      cursor: pointer;
+      border: 1px solid;
+      transition: all 0.15s;
+      letter-spacing: 0.02em;
+    }
+    .btn-accent { background: var(--accent); color: #000; border-color: var(--accent); font-weight: 700; }
+    .btn-accent:hover { filter: brightness(1.1); }
+    .btn-outline { background: transparent; color: var(--text); border-color: var(--border2); }
+    .btn-outline:hover { border-color: var(--accent); color: var(--accent); }
+    .btn-amber { background: var(--warn); color: #000; border-color: var(--warn); font-weight: 700; }
+    .btn-amber:hover { filter: brightness(1.1); }
+    .btn-blue { background: var(--accent2); color: #000; border-color: var(--accent2); font-weight: 700; }
+    .btn-blue:hover { filter: brightness(1.1); }
+    .btn-danger { background: transparent; border-color: var(--danger); color: var(--danger); }
+    .btn-danger:hover { background: rgba(239,68,68,0.1); }
+    .btn-run {
+      background: linear-gradient(135deg, var(--accent), #00aaff);
+      color: #000;
+      border: none;
+      font-weight: 800;
+      font-size: 0.85rem;
+      padding: 12px 24px;
+      width: 100%;
+      letter-spacing: 0.05em;
+    }
+    .btn-run:hover { filter: brightness(1.08); transform: translateY(-1px); }
+
+    /* ── Layout ── */
+    .main-grid {
+      display: grid;
+      grid-template-columns: 340px 1fr;
+      gap: 20px;
+      align-items: start;
+    }
+    @media (max-width: 900px) { .main-grid { grid-template-columns: 1fr; } }
+
+    /* ── Panel ── */
+    .panel {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 20px;
+      margin-bottom: 16px;
+    }
+    .panel-title {
+      font-family: var(--font-mono);
+      font-size: 0.7rem;
+      color: var(--accent);
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      margin-bottom: 16px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .panel-title::before { content: '//'; color: var(--muted); }
+
+    /* ── Form ── */
+    .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; }
+    .form-row.three { grid-template-columns: 1fr 1fr 1fr; }
+    label { display: block; font-size: 0.7rem; color: var(--muted); margin-bottom: 5px; font-family: var(--font-mono); }
+    input[type=text], input[type=number], select {
+      width: 100%;
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      color: var(--text);
+      font-family: var(--font-mono);
+      font-size: 0.8rem;
+      padding: 8px 10px;
+      outline: none;
+      transition: border-color 0.15s;
+      -webkit-appearance: none;
+    }
+    input:focus, select:focus { border-color: var(--accent); }
+    select option { background: var(--bg3); }
+
+    /* ── Algorithm tabs ── */
+    .algo-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 12px; }
+    .algo-btn {
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      padding: 8px 10px;
+      border-radius: 4px;
+      cursor: pointer;
+      border: 1px solid var(--border);
+      background: var(--bg3);
+      color: var(--muted);
+      transition: all 0.15s;
+      text-align: center;
+    }
+    .algo-btn.active { border-color: var(--accent); color: var(--accent); background: rgba(0,229,160,0.08); }
+    .algo-btn:hover:not(.active) { border-color: var(--border2); color: var(--text); }
+
+    /* ── Process table ── */
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.78rem; }
+    th { font-family: var(--font-mono); font-size: 0.65rem; color: var(--muted); text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); letter-spacing: 0.08em; }
+    td { padding: 7px 8px; border-bottom: 1px solid var(--border); font-family: var(--font-mono); font-size: 0.75rem; color: var(--text); }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: rgba(255,255,255,0.02); }
+    .badge-p { color: var(--p-core); }
+    .badge-e { color: var(--e-core); }
+
+    /* ── Energy score ring ── */
+    .score-ring-wrap { display: flex; flex-direction: column; align-items: center; }
+    .score-ring { position: relative; width: 100px; height: 100px; }
+    .score-ring svg { transform: rotate(-90deg); }
+    .score-ring-val {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      font-family: var(--font-mono);
+    }
+    .score-ring-val .big { font-size: 1.6rem; font-weight: 700; color: var(--accent); }
+    .score-ring-val .lbl { font-size: 0.55rem; color: var(--muted); letter-spacing: 0.05em; margin-top: -2px; }
+
+    /* ── Gantt ── */
+    #ganttContainer {
+      display: flex;
+      width: 100%;
+      min-height: 88px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      overflow: auto;
+      align-items: stretch;
+      flex-wrap: nowrap;
+    }
+    .g-seg {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-width: 52px;
+      border-right: 1px solid rgba(0,0,0,0.4);
+      cursor: pointer;
+      transition: transform 0.14s, filter 0.14s;
+      flex-shrink: 0;
+      position: relative;
+    }
+    .g-seg:hover { transform: scaleY(1.04); filter: brightness(1.12); }
+    .g-seg-pid { font-family: var(--font-mono); font-size: 0.72rem; font-weight: 700; color: #000; }
+    .g-seg-core { font-size: 0.55rem; color: rgba(0,0,0,0.65); letter-spacing: 0.04em; margin-top: 1px; }
+    .g-seg-dvfs { font-size: 0.5rem; color: rgba(0,0,0,0.55); }
+    .g-timeline { display: flex; justify-content: space-between; font-family: var(--font-mono); font-size: 0.65rem; color: var(--muted); margin-top: 6px; padding: 0 2px; }
+
+    /* ── Thermal bar ── */
+    .thermal-bar-wrap { margin-bottom: 14px; }
+    .thermal-bar-label { display: flex; justify-content: space-between; font-family: var(--font-mono); font-size: 0.65rem; color: var(--muted); margin-bottom: 4px; }
+    .thermal-bar { height: 8px; background: var(--bg3); border-radius: 4px; overflow: hidden; border: 1px solid var(--border); }
+    .thermal-bar-fill { height: 100%; border-radius: 4px; transition: width 0.4s; }
+
+    /* ── Core chip viz ── */
+    .core-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+    .core-chip {
+      border-radius: 6px;
+      padding: 10px 8px;
+      text-align: center;
+      border: 1px solid;
+      transition: all 0.3s;
+    }
+    .core-chip.p-core { border-color: rgba(0,229,160,0.3); background: rgba(0,229,160,0.05); }
+    .core-chip.e-core { border-color: rgba(59,130,246,0.3); background: rgba(59,130,246,0.05); }
+    .core-chip.busy-p { border-color: var(--p-core); background: rgba(0,229,160,0.15); }
+    .core-chip.busy-e { border-color: var(--e-core); background: rgba(59,130,246,0.15); }
+    .core-chip.hot { border-color: var(--danger) !important; background: rgba(239,68,68,0.12) !important; }
+    .core-chip-label { font-family: var(--font-mono); font-size: 0.62rem; color: var(--muted); }
+    .core-chip-freq { font-family: var(--font-mono); font-size: 0.75rem; font-weight: 700; margin-top: 2px; }
+    .core-chip-temp { font-size: 0.6rem; margin-top: 2px; }
+
+    /* ── Metrics ── */
+    .metrics-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 16px; }
+    .metric-card { background: var(--bg3); border: 1px solid var(--border); border-radius: 6px; padding: 14px; }
+    .metric-card .val { font-family: var(--font-mono); font-size: 1.5rem; font-weight: 700; }
+    .metric-card .lbl { font-size: 0.65rem; color: var(--muted); margin-top: 2px; letter-spacing: 0.06em; }
+    .green { color: var(--accent); }
+    .amber { color: var(--warn); }
+    .blue { color: var(--accent2); }
+    .red { color: var(--danger); }
+
+    /* ── Tooltip ── */
+    #tooltip {
+      position: fixed;
+      z-index: 100;
+      background: var(--bg2);
+      border: 1px solid var(--border2);
+      border-radius: 6px;
+      padding: 10px 14px;
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      pointer-events: none;
+      display: none;
+      max-width: 220px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+    }
+    #tooltip .t-pid { font-size: 0.85rem; font-weight: 700; color: var(--accent); margin-bottom: 6px; }
+    #tooltip .t-row { display: flex; justify-content: space-between; gap: 16px; color: var(--muted); margin-bottom: 3px; }
+    #tooltip .t-row span:last-child { color: var(--text); }
+
+    /* ── DVFS legend ── */
+    .dvfs-legend { display: flex; gap: 10px; flex-wrap: wrap; }
+    .dvfs-dot { width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0; }
+
+    /* ── Prediction panel ── */
+    .pred-bar-wrap { margin-bottom: 8px; }
+    .pred-bar { height: 6px; background: var(--bg3); border-radius: 3px; overflow: hidden; margin-top: 3px; }
+    .pred-bar-fill { height: 100%; border-radius: 3px; background: linear-gradient(90deg, var(--accent), var(--accent2)); }
+
+    /* ── Section divider ── */
+    .section-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+    .section-header h2 { font-size: 0.9rem; font-weight: 600; color: #fff; }
+    .section-line { flex: 1; height: 1px; background: var(--border); }
+
+    /* ── Scrollbars ── */
+    ::-webkit-scrollbar { width: 5px; height: 5px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 4px; }
+
+    .empty-state { text-align: center; padding: 32px; color: var(--muted); font-family: var(--font-mono); font-size: 0.8rem; }
+
+    /* animation */
+    @keyframes pulse-glow {
+      0%,100% { box-shadow: 0 0 0 0 rgba(0,229,160,0.3); }
+      50% { box-shadow: 0 0 0 6px rgba(0,229,160,0); }
+    }
+    .running { animation: pulse-glow 1.4s infinite; }
+  </style>
+</head>
+<body>
+<div class="container">
+
+  <!-- HEADER -->
+  <header>
+    <div class="header-left">
+      <h1>Energy-Aware <span>CPU Scheduler</span></h1>
+      <p>// DVFS · Thermal-Aware · Workload Prediction · Heterogeneous Cores</p>
+      <div class="tag-row">
+        <span class="tag tag-green">DVFS</span>
+        <span class="tag tag-blue">P+E Cores</span>
+        <span class="tag tag-amber">Thermal Guard</span>
+        <span class="tag tag-red">Power Optimizer</span>
+        <span class="tag tag-green">Workload AI</span>
+      </div>
+    </div>
+    <div class="header-right">
+      <button class="btn btn-outline" id="presetBtn">Load Preset</button>
+      <button class="btn btn-amber" id="exportCsvBtn">Export CSV</button>
+      <button class="btn btn-blue" id="exportPngBtn">PNG Report</button>
+    </div>
+  </header>
+
+  <div class="main-grid">
+
+    <!-- LEFT COLUMN -->
+    <div>
+
+      <!-- Add Process -->
+      <div class="panel">
+        <div class="panel-title">Process Input</div>
+        <div class="form-row">
+          <div>
+            <label>Process ID</label>
+            <input id="pid" type="text" placeholder="auto (P1…)" />
+          </div>
+          <div>
+            <label>Workload Type</label>
+            <select id="workloadType">
+              <option value="cpu">CPU-Bound</option>
+              <option value="io">I/O-Bound</option>
+              <option value="mixed">Mixed</option>
+              <option value="realtime">Real-Time</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-row three">
+          <div>
+            <label>Arrival (t)</label>
+            <input id="arrival" type="number" min="0" value="0" />
+          </div>
+          <div>
+            <label>Burst (ms)</label>
+            <input id="burst" type="number" min="1" value="6" />
+          </div>
+          <div>
+            <label>Priority</label>
+            <input id="priority" type="number" min="1" value="2" />
+          </div>
+        </div>
+        <div class="form-row">
+          <div>
+            <label>Power Profile</label>
+            <select id="powerProfile">
+              <option value="normal">Normal</option>
+              <option value="power-save">Power Save</option>
+              <option value="performance">Performance</option>
+            </select>
+          </div>
+          <div>
+            <label>Core Affinity</label>
+            <select id="coreAffinity">
+              <option value="auto">Auto</option>
+              <option value="p-core">P-Core Only</option>
+              <option value="e-core">E-Core Only</option>
+            </select>
+          </div>
+        </div>
+        <div style="display:flex;gap:8px;margin-top:4px;">
+          <button class="btn btn-accent" id="addProcessBtn" style="flex:1">+ Add Process</button>
+          <button class="btn btn-danger" id="clearProcessBtn">Clear All</button>
+        </div>
+      </div>
+
+      <!-- Algorithm -->
+      <div class="panel">
+        <div class="panel-title">Scheduling Algorithm</div>
+        <div class="algo-grid">
+          <div class="algo-btn" data-algo="fcfs">FCFS</div>
+          <div class="algo-btn" data-algo="sjf">SJF</div>
+          <div class="algo-btn" data-algo="rr">Round Robin</div>
+          <div class="algo-btn" data-algo="priority">Priority</div>
+          <div class="algo-btn" data-algo="energy">Energy-First</div>
+          <div class="algo-btn" data-algo="thermal">Thermal-Aware</div>
+        </div>
+        <div class="form-row">
+          <div>
+            <label>Time Quantum (RR)</label>
+            <input id="quantum" type="number" min="1" value="2" />
+          </div>
+          <div>
+            <label>Thermal Limit (°C)</label>
+            <input id="thermalLimit" type="number" min="50" max="100" value="85" />
+          </div>
+        </div>
+        <div style="margin-bottom:12px;">
+          <label>DVFS Policy</label>
+          <select id="dvfsPolicy">
+            <option value="powersave">powersave – minimize energy</option>
+            <option value="ondemand" selected>ondemand – balance load</option>
+            <option value="performance">performance – max speed</option>
+            <option value="conservative">conservative – gradual scale</option>
+          </select>
+        </div>
+        <button class="btn btn-run running" id="runBtn">▶ RUN SCHEDULER</button>
+      </div>
+
+      <!-- Core Status -->
+      <div class="panel">
+        <div class="panel-title">Core Architecture</div>
+        <div class="core-grid" id="coreGrid">
+          <div class="core-chip p-core" id="core0">
+            <div class="core-chip-label">P0</div>
+            <div class="core-chip-freq green">3.2 GHz</div>
+            <div class="core-chip-temp">🌡 42°C</div>
+          </div>
+          <div class="core-chip p-core" id="core1">
+            <div class="core-chip-label">P1</div>
+            <div class="core-chip-freq green">3.2 GHz</div>
+            <div class="core-chip-temp">🌡 41°C</div>
+          </div>
+          <div class="core-chip e-core" id="core2">
+            <div class="core-chip-label">E0</div>
+            <div class="core-chip-freq blue">1.8 GHz</div>
+            <div class="core-chip-temp">🌡 35°C</div>
+          </div>
+          <div class="core-chip e-core" id="core3">
+            <div class="core-chip-label">E1</div>
+            <div class="core-chip-freq blue">1.8 GHz</div>
+            <div class="core-chip-temp">🌡 35°C</div>
+          </div>
+        </div>
+        <div style="margin-top:12px;">
+          <div class="thermal-bar-wrap">
+            <div class="thermal-bar-label"><span>P-Core Avg Temp</span><span id="pCoreTemp">42°C</span></div>
+            <div class="thermal-bar"><div class="thermal-bar-fill" id="pCoreThermalFill" style="width:42%;background:linear-gradient(90deg,#00e5a0,#f59e0b)"></div></div>
+          </div>
+          <div class="thermal-bar-wrap">
+            <div class="thermal-bar-label"><span>E-Core Avg Temp</span><span id="eCoreTemp">35°C</span></div>
+            <div class="thermal-bar"><div class="thermal-bar-fill" id="eCoreThermalFill" style="width:35%;background:linear-gradient(90deg,#3b82f6,#00e5a0)"></div></div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- RIGHT COLUMN -->
+    <div>
+
+      <!-- Process Table -->
+      <div class="panel">
+        <div class="section-header">
+          <h2>Process Queue</h2>
+          <div class="section-line"></div>
+          <span id="processCountLabel" style="font-family:var(--font-mono);font-size:0.7rem;color:var(--muted);">0 processes</span>
+          <span id="selectedAlgoLabel" style="font-family:var(--font-mono);font-size:0.7rem;color:var(--accent);">no algo</span>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>PID</th><th>Arrive</th><th>Burst</th><th>Pri</th>
+                <th>Type</th><th>Profile</th><th>Affinity</th><th>Pred.Burst</th>
+              </tr>
+            </thead>
+            <tbody id="processTableBody"></tbody>
+          </table>
+          <div class="empty-state" id="emptyState">// no processes added yet</div>
+        </div>
+      </div>
+
+      <!-- Workload Prediction Panel -->
+      <div class="panel" id="predictionPanel" style="display:none;">
+        <div class="panel-title">Workload Prediction Engine</div>
+        <div id="predictionContent"></div>
+      </div>
+
+      <!-- Gantt Chart -->
+      <div class="panel">
+        <div class="section-header">
+          <h2>Gantt Chart</h2>
+          <div class="section-line"></div>
+          <div style="display:flex;gap:10px;align-items:center;" id="dvfsLegend">
+            <div class="dvfs-legend">
+              <div style="display:flex;align-items:center;gap:4px;font-size:0.62rem;color:var(--muted);font-family:var(--font-mono);">
+                <div class="dvfs-dot" style="background:#00e5a0"></div>HIGH (P)
+              </div>
+              <div style="display:flex;align-items:center;gap:4px;font-size:0.62rem;color:var(--muted);font-family:var(--font-mono);">
+                <div class="dvfs-dot" style="background:#3b82f6"></div>MED (E)
+              </div>
+              <div style="display:flex;align-items:center;gap:4px;font-size:0.62rem;color:var(--muted);font-family:var(--font-mono);">
+                <div class="dvfs-dot" style="background:#f59e0b"></div>LOW
+              </div>
+            </div>
+          </div>
+        </div>
+        <div id="ganttContainer">
+          <div class="empty-state">// run scheduler to see gantt</div>
+        </div>
+        <div class="g-timeline" id="ganttTimeline"></div>
+      </div>
+
+      <!-- Energy & Performance Metrics -->
+      <div class="panel" id="metricsPanel">
+        <div class="section-header">
+          <h2>Energy & Performance Report</h2>
+          <div class="section-line"></div>
+        </div>
+
+        <div class="metrics-grid">
+          <div class="metric-card">
+            <div class="val green" id="metAvgTat">-</div>
+            <div class="lbl">AVG TURNAROUND</div>
+          </div>
+          <div class="metric-card">
+            <div class="val amber" id="metAvgWt">-</div>
+            <div class="lbl">AVG WAIT TIME</div>
+          </div>
+          <div class="metric-card">
+            <div class="val blue" id="metThroughput">-</div>
+            <div class="lbl">THROUGHPUT</div>
+          </div>
+          <div class="metric-card">
+            <div class="val red" id="metTotalEnergy">-</div>
+            <div class="lbl">TOTAL ENERGY (mJ)</div>
+          </div>
+          <div class="metric-card">
+            <div class="val green" id="metEnergySaved">-</div>
+            <div class="lbl">ENERGY SAVED vs PERF</div>
+          </div>
+          <div class="metric-card">
+            <div class="val amber" id="metMaxTemp">-</div>
+            <div class="lbl">PEAK CORE TEMP</div>
+          </div>
+        </div>
+
+        <!-- Score Ring + Process Metrics Table -->
+        <div style="display:grid;grid-template-columns:auto 1fr;gap:20px;align-items:start;">
+          <div class="score-ring-wrap">
+            <div class="score-ring">
+              <svg width="100" height="100" viewBox="0 0 100 100">
+                <circle cx="50" cy="50" r="40" fill="none" stroke="rgba(255,255,255,0.05)" stroke-width="10"/>
+                <circle id="scoreCircle" cx="50" cy="50" r="40" fill="none" stroke="var(--accent)" stroke-width="10"
+                  stroke-dasharray="251.2" stroke-dashoffset="251.2" stroke-linecap="round" style="transition:stroke-dashoffset 0.8s"/>
+              </svg>
+              <div class="score-ring-val">
+                <div class="big" id="energyScoreVal">-</div>
+                <div class="lbl">EFF SCORE</div>
+              </div>
+            </div>
+            <div style="margin-top:8px;font-family:var(--font-mono);font-size:0.62rem;color:var(--muted);text-align:center;">Energy Efficiency<br>Score / 100</div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr><th>PID</th><th>CT</th><th>TAT</th><th>WT</th><th>Core</th><th>Freq</th><th>Power(mW)</th><th>Temp°C</th></tr>
+              </thead>
+              <tbody id="metricsTableBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- DVFS State Log -->
+      <div class="panel" id="dvfsPanel" style="display:none;">
+        <div class="panel-title">DVFS Frequency Scaling Log</div>
+        <div id="dvfsLog" style="font-family:var(--font-mono);font-size:0.7rem;color:var(--muted);line-height:1.8;max-height:160px;overflow:auto;"></div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- Tooltip -->
+<div id="tooltip">
+  <div class="t-pid" id="ttPid"></div>
+  <div class="t-row"><span>Start</span><span id="ttStart"></span></div>
+  <div class="t-row"><span>End</span><span id="ttEnd"></span></div>
+  <div class="t-row"><span>Duration</span><span id="ttDur"></span></div>
+  <div class="t-row"><span>Core</span><span id="ttCore"></span></div>
+  <div class="t-row"><span>Freq</span><span id="ttFreq"></span></div>
+  <div class="t-row"><span>Power</span><span id="ttPower"></span></div>
+  <div class="t-row"><span>Temp</span><span id="ttTemp"></span></div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script>
+// ══════════════════════════════════════════════
+// STATE
+// ══════════════════════════════════════════════
+let processes = [];
+let selectedAlgo = null;
+let autoPidCounter = 1;
+let lastSchedule = null;
+
+// Core config: 2 P-cores (high perf), 2 E-cores (efficient)
+const CORES = [
+  { id: 'P0', type: 'p-core', baseFreq: 3200, maxFreq: 3800, idlePower: 400, activePower: 2800, idleTemp: 40 },
+  { id: 'P1', type: 'p-core', baseFreq: 3200, maxFreq: 3800, idlePower: 400, activePower: 2800, idleTemp: 41 },
+  { id: 'E0', type: 'e-core', baseFreq: 1800, maxFreq: 2400, idlePower: 80,  activePower: 600,  idleTemp: 34 },
+  { id: 'E1', type: 'e-core', baseFreq: 1800, maxFreq: 2400, idlePower: 80,  activePower: 600,  idleTemp: 35 },
+];
+
+// DVFS freq levels for each core type
+const DVFS_LEVELS = {
+  'p-core': [
+    { label: 'LOW',  freq: 1600, voltMult: 0.6, powerMult: 0.35 },
+    { label: 'MED',  freq: 2400, voltMult: 0.8, powerMult: 0.60 },
+    { label: 'HIGH', freq: 3200, voltMult: 1.0, powerMult: 1.00 },
+    { label: 'MAX',  freq: 3800, voltMult: 1.15,powerMult: 1.40 },
+  ],
+  'e-core': [
+    { label: 'LOW',  freq: 800,  voltMult: 0.55, powerMult: 0.30 },
+    { label: 'MED',  freq: 1200, voltMult: 0.75, powerMult: 0.55 },
+    { label: 'HIGH', freq: 1800, voltMult: 1.0,  powerMult: 1.00 },
+    { label: 'MAX',  freq: 2400, voltMult: 1.2,  powerMult: 1.45 },
+  ]
+};
+
+// Workload type power multipliers
+const WORKLOAD_POWER = { cpu: 1.0, io: 0.45, mixed: 0.70, realtime: 1.15 };
+const WORKLOAD_THERMAL = { cpu: 1.1, io: 0.6, mixed: 0.85, realtime: 1.2 };
+const PROFILE_DVFS = { 'normal': 'MED', 'power-save': 'LOW', 'performance': 'HIGH' };
+
+// ══════════════════════════════════════════════
+// DOM REFS
+// ══════════════════════════════════════════════
+const pidInput      = document.getElementById('pid');
+const arrivalInput  = document.getElementById('arrival');
+const burstInput    = document.getElementById('burst');
+const priorityInput = document.getElementById('priority');
+const workloadType  = document.getElementById('workloadType');
+const powerProfile  = document.getElementById('powerProfile');
+const coreAffinity  = document.getElementById('coreAffinity');
+const quantumInput  = document.getElementById('quantum');
+const thermalLimit  = document.getElementById('thermalLimit');
+const dvfsPolicy    = document.getElementById('dvfsPolicy');
+const addProcessBtn = document.getElementById('addProcessBtn');
+const clearProcessBtn = document.getElementById('clearProcessBtn');
+const processTableBody = document.getElementById('processTableBody');
+const emptyState    = document.getElementById('emptyState');
+const processCountLabel = document.getElementById('processCountLabel');
+const selectedAlgoLabel = document.getElementById('selectedAlgoLabel');
+const runBtn        = document.getElementById('runBtn');
+const ganttContainer = document.getElementById('ganttContainer');
+const ganttTimeline = document.getElementById('ganttTimeline');
+const metricsTableBody = document.getElementById('metricsTableBody');
+const presetBtn     = document.getElementById('presetBtn');
+const exportCsvBtn  = document.getElementById('exportCsvBtn');
+const exportPngBtn  = document.getElementById('exportPngBtn');
+const tooltip       = document.getElementById('tooltip');
+
+// ══════════════════════════════════════════════
+// WORKLOAD PREDICTION ENGINE (simple heuristic model)
+// ══════════════════════════════════════════════
+function predictBurst(p) {
+  // Based on historical pattern (workload type), predict actual CPU time
+  const multipliers = { cpu: 0.95, io: 0.50, mixed: 0.72, realtime: 1.05 };
+  const noise = (Math.random() - 0.5) * 0.1; // ±5% variance
+  return Math.max(1, Math.round(p.burst * (multipliers[p.workloadType] + noise)));
+}
+
+function confidenceScore(workloadType) {
+  return { cpu: 92, io: 78, mixed: 83, realtime: 88 }[workloadType];
+}
+
+// ══════════════════════════════════════════════
+// DVFS SELECTOR
+// ══════════════════════════════════════════════
+function selectDVFSLevel(process, coreType, policy, coreTemp, thermalLimitVal) {
+  const levels = DVFS_LEVELS[coreType];
+  let targetLabel;
+
+  // Thermal throttle — always override if too hot
+  if (coreTemp >= thermalLimitVal - 5) {
+    targetLabel = 'LOW';
+  } else if (coreTemp >= thermalLimitVal - 15) {
+    targetLabel = 'MED';
+  } else {
+    // Profile-based
+    const profileTarget = PROFILE_DVFS[process.powerProfile] || 'MED';
+    // Policy-based overrides
+    if (policy === 'powersave') targetLabel = 'LOW';
+    else if (policy === 'performance') targetLabel = 'MAX';
+    else if (policy === 'conservative') targetLabel = coreTemp > 55 ? 'MED' : profileTarget;
+    else targetLabel = profileTarget; // ondemand
+    // Real-time gets bumped up one level
+    if (process.workloadType === 'realtime' && targetLabel !== 'MAX') {
+      const idx = levels.findIndex(l => l.label === targetLabel);
+      if (idx < levels.length - 1) targetLabel = levels[idx + 1].label;
+    }
+  }
+  return levels.find(l => l.label === targetLabel) || levels[2];
+}
+
+// ══════════════════════════════════════════════
+// CORE ASSIGNMENT (heterogeneous)
+// ══════════════════════════════════════════════
+function assignCore(process, coreTemps) {
+  const affinity = process.coreAffinity;
+  const thermalLimitVal = parseInt(thermalLimit.value, 10) || 85;
+
+  if (affinity === 'p-core') {
+    // pick cooler P-core
+    const pCores = [0, 1].filter(i => coreTemps[i] < thermalLimitVal);
+    if (pCores.length) return pCores.reduce((a, b) => coreTemps[a] < coreTemps[b] ? a : b);
+    return 0;
+  }
+  if (affinity === 'e-core') {
+    return coreTemps[2] <= coreTemps[3] ? 2 : 3;
+  }
+
+  // Auto: CPU-bound → P-core if not throttled, else E-core
+  if (process.workloadType === 'cpu' || process.workloadType === 'realtime') {
+    const pCores = [0, 1].filter(i => coreTemps[i] < thermalLimitVal - 5);
+    if (pCores.length) return pCores.reduce((a, b) => coreTemps[a] < coreTemps[b] ? a : b);
+  }
+  // I/O-bound or fallback → E-core
+  return coreTemps[2] <= coreTemps[3] ? 2 : 3;
+}
+
+// ══════════════════════════════════════════════
+// ENERGY CALCULATION
+// ══════════════════════════════════════════════
+function calcEnergy(process, core, dvfsLevel, duration) {
+  const basePower = core.activePower; // mW
+  const power = basePower * dvfsLevel.powerMult * (WORKLOAD_POWER[process.workloadType] || 1.0);
+  const energy = power * duration; // mJ (time unit = ms)
+  return { power: Math.round(power), energy: Math.round(energy) };
+}
+
+function calcThermal(core, dvfsLevel, process, duration, currentTemp) {
+  const heatRate = 0.5 * dvfsLevel.powerMult * WORKLOAD_THERMAL[process.workloadType];
+  const cooling = 0.1 * duration;
+  return Math.min(105, Math.max(30, currentTemp + heatRate * duration * 0.12 - cooling));
+}
+
+// ══════════════════════════════════════════════
+// SCHEDULING ALGORITHMS
+// ══════════════════════════════════════════════
+function fcfsAlgo(procs) {
+  return [...procs].sort((a,b) => a.arrival - b.arrival || a.pid.localeCompare(b.pid));
+}
+function sjfAlgo(procs) {
+  return [...procs].sort((a,b) => a.burst - b.burst || a.arrival - b.arrival);
+}
+function priorityAlgo(procs) {
+  return [...procs].sort((a,b) => a.priority - b.priority || a.arrival - b.arrival);
+}
+function energyFirstAlgo(procs) {
+  // Sort by I/O-bound first (less power), then by burst
+  const typeOrder = { io: 0, mixed: 1, cpu: 2, realtime: 3 };
+  return [...procs].sort((a,b) => typeOrder[a.workloadType] - typeOrder[b.workloadType] || a.burst - b.burst);
+}
+function thermalAwareAlgo(procs, coreTemps) {
+  // Sort: processes with e-core affinity first if P cores are hot
+  return [...procs].sort((a,b) => {
+    const aHot = a.coreAffinity === 'p-core' && coreTemps[0] > 75;
+    const bHot = b.coreAffinity === 'p-core' && coreTemps[0] > 75;
+    if (aHot && !bHot) return 1;
+    if (!aHot && bHot) return -1;
+    return a.arrival - b.arrival;
+  });
+}
+
+function buildSchedule(orderedProcs) {
+  const policy = dvfsPolicy.value;
+  const thermalLimitVal = parseInt(thermalLimit.value, 10) || 85;
+  const coreTemps = CORES.map(c => c.idleTemp);
+  let time = 0;
+  const schedule = [];
+  const dvfsLog = [];
+
+  orderedProcs.forEach(p => {
+    if (time < p.arrival) time = p.arrival;
+    const coreIdx = assignCore(p, coreTemps);
+    const core = CORES[coreIdx];
+    const dvfsLevel = selectDVFSLevel(p, core.type, policy, coreTemps[coreIdx], thermalLimitVal);
+    // Duration adjusted by frequency ratio (higher freq = faster)
+    const freqRatio = dvfsLevel.freq / core.baseFreq;
+    const actualDuration = Math.max(1, Math.round(p.predictedBurst / freqRatio));
+    const start = time, end = time + actualDuration;
+    const { power, energy } = calcEnergy(p, core, dvfsLevel, actualDuration);
+    const newTemp = calcThermal(core, dvfsLevel, p, actualDuration, coreTemps[coreIdx]);
+    coreTemps[coreIdx] = newTemp;
+
+    dvfsLog.push(`[t=${start}] ${p.pid} → ${core.id} @ ${dvfsLevel.freq}MHz (${dvfsLevel.label}) | ${power}mW | ${newTemp.toFixed(1)}°C`);
+
+    schedule.push({
+      pid: p.pid,
+      start, end,
+      coreIdx,
+      coreId: core.id,
+      coreType: core.type,
+      dvfsLevel,
+      power,
+      energy,
+      temp: Math.round(newTemp),
+      workloadType: p.workloadType
+    });
+    time = end;
+  });
+
+  return { schedule, dvfsLog, finalTemps: coreTemps };
+}
+
+function rrSchedule(procs) {
+  const quantum = parseInt(quantumInput.value, 10) || 2;
+  const policy = dvfsPolicy.value;
+  const thermalLimitVal = parseInt(thermalLimit.value, 10) || 85;
+  const coreTemps = CORES.map(c => c.idleTemp);
+  const arr = [...procs].sort((a,b) => a.arrival - b.arrival);
+  const remBT = {}; arr.forEach(p => remBT[p.pid] = p.predictedBurst);
+  const queue = []; let i = 0; let time = 0;
+  const schedule = []; const dvfsLog = [];
+
+  while (i < arr.length || queue.length > 0) {
+    while (i < arr.length && arr[i].arrival <= time) { queue.push(i); i++; }
+    if (!queue.length) { if (i < arr.length) { time = arr[i].arrival; queue.push(i); i++; } else break; }
+    const idx = queue.shift(); const p = arr[idx];
+    const exec = Math.min(quantum, remBT[p.pid]);
+    const coreIdx = assignCore(p, coreTemps);
+    const core = CORES[coreIdx];
+    const dvfsLevel = selectDVFSLevel(p, core.type, policy, coreTemps[coreIdx], thermalLimitVal);
+    const freqRatio = dvfsLevel.freq / core.baseFreq;
+    const actualExec = Math.max(1, Math.round(exec / freqRatio));
+    const start = time, end = time + actualExec;
+    const { power, energy } = calcEnergy(p, core, dvfsLevel, actualExec);
+    const newTemp = calcThermal(core, dvfsLevel, p, actualExec, coreTemps[coreIdx]);
+    coreTemps[coreIdx] = newTemp;
+    dvfsLog.push(`[t=${start}] ${p.pid}(slice) → ${core.id} @ ${dvfsLevel.freq}MHz | ${power}mW | ${newTemp.toFixed(1)}°C`);
+    schedule.push({ pid: p.pid, start, end, coreIdx, coreId: core.id, coreType: core.type, dvfsLevel, power, energy, temp: Math.round(newTemp), workloadType: p.workloadType });
+    time = end; remBT[p.pid] -= exec;
+    while (i < arr.length && arr[i].arrival <= time) { queue.push(i); i++; }
+    if (remBT[p.pid] > 0) queue.push(idx);
+  }
+  return { schedule, dvfsLog, finalTemps: coreTemps };
+}
+
+// ══════════════════════════════════════════════
+// METRICS
+// ══════════════════════════════════════════════
+function calculateMetrics(procs, schedule) {
+  const ct = {};
+  schedule.forEach(s => ct[s.pid] = Math.max(ct[s.pid] || 0, s.end));
+  let totalTAT = 0, totalWT = 0, totalEnergy = 0;
+  const procMap = {};
+  procs.forEach(p => procMap[p.pid] = p);
+
+  const rows = procs.map(p => {
+    const completion = ct[p.pid] || 0;
+    const tat = completion - p.arrival;
+    const wt = tat - p.burst;
+    totalTAT += tat; totalWT += wt;
+    // Sum energy for all slots of this PID
+    const segs = schedule.filter(s => s.pid === p.pid);
+    const energy = segs.reduce((acc, s) => acc + s.energy, 0);
+    totalEnergy += energy;
+    const lastSeg = segs[segs.length - 1];
+    return {
+      pid: p.pid, ct: completion, tat, wt,
+      coreId: lastSeg?.coreId || '-',
+      freq: lastSeg ? `${lastSeg.dvfsLevel.freq}MHz` : '-',
+      power: lastSeg?.power || 0,
+      temp: lastSeg?.temp || 0
+    };
+  });
+
+  const n = procs.length || 1;
+  const totalTime = schedule.length ? schedule[schedule.length-1].end : 1;
+  // Reference energy (all on P-cores at MAX)
+  const refEnergy = procs.reduce((acc, p) => acc + CORES[0].activePower * 1.4 * p.burst, 0);
+  const energySaved = Math.max(0, Math.round((1 - totalEnergy/refEnergy) * 100));
+  const maxTemp = Math.max(...schedule.map(s => s.temp));
+  // Efficiency score: lower energy + good TAT + lower temp
+  const effScore = Math.min(100, Math.round(energySaved * 0.5 + (1 - (totalTAT/n) / (totalTime)) * 30 + (1 - maxTemp/100) * 20));
+
+  return {
+    rows,
+    avgTat: totalTAT / n,
+    avgWt: totalWT / n,
+    throughput: (n / totalTime).toFixed(3),
+    totalEnergy,
+    energySaved,
+    maxTemp,
+    effScore: Math.max(0, effScore)
+  };
+}
+
+// ══════════════════════════════════════════════
+// RENDER
+// ══════════════════════════════════════════════
+function renderProcessTable() {
+  processTableBody.innerHTML = '';
+  emptyState.style.display = processes.length === 0 ? 'block' : 'none';
+  processCountLabel.textContent = `${processes.length} process(es)`;
+  processes.forEach(p => {
+    const tr = document.createElement('tr');
+    const predClass = p.predictedBurst < p.burst ? 'green' : p.predictedBurst > p.burst ? 'amber' : '';
+    tr.innerHTML = `
+      <td style="font-weight:600;color:#fff">${p.pid}</td>
+      <td>${p.arrival}</td>
+      <td>${p.burst}</td>
+      <td>${p.priority}</td>
+      <td><span class="tag tag-green" style="font-size:0.58rem">${p.workloadType}</span></td>
+      <td>${p.powerProfile}</td>
+      <td class="${p.coreAffinity === 'p-core' ? 'badge-p' : p.coreAffinity === 'e-core' ? 'badge-e' : ''}">${p.coreAffinity}</td>
+      <td class="${predClass}">${p.predictedBurst}</td>
+    `;
+    processTableBody.appendChild(tr);
+  });
+}
+
+function renderPredictionPanel() {
+  if (!processes.length) { document.getElementById('predictionPanel').style.display = 'none'; return; }
+  document.getElementById('predictionPanel').style.display = 'block';
+  const content = document.getElementById('predictionContent');
+  content.innerHTML = processes.map(p => {
+    const conf = confidenceScore(p.workloadType);
+    const pct = (p.predictedBurst / Math.max(...processes.map(x => x.burst))) * 100;
+    return `
+      <div class="pred-bar-wrap">
+        <div style="display:flex;justify-content:space-between;font-family:var(--font-mono);font-size:0.68rem;color:var(--muted);">
+          <span style="color:var(--text)">${p.pid} <span style="color:var(--muted)">(${p.workloadType})</span></span>
+          <span>pred: <b style="color:var(--accent)">${p.predictedBurst}ms</b> &nbsp; conf: ${conf}%</span>
+        </div>
+        <div class="pred-bar"><div class="pred-bar-fill" style="width:${pct}%"></div></div>
+      </div>
+    `;
+  }).join('');
+}
+
+const SEG_COLORS = {
+  'p-core': {
+    MAX:  'linear-gradient(180deg,#00ff99,#00e5a0)',
+    HIGH: 'linear-gradient(180deg,#00e5a0,#00c47a)',
+    MED:  'linear-gradient(180deg,#00c47a,#009a5e)',
+    LOW:  'linear-gradient(180deg,#f59e0b,#d97706)',
+  },
+  'e-core': {
+    MAX:  'linear-gradient(180deg,#60a5fa,#3b82f6)',
+    HIGH: 'linear-gradient(180deg,#3b82f6,#2563eb)',
+    MED:  'linear-gradient(180deg,#2563eb,#1d4ed8)',
+    LOW:  'linear-gradient(180deg,#f59e0b,#d97706)',
+  }
+};
+
+function renderGantt(schedule) {
+  ganttContainer.innerHTML = '';
+  if (!schedule || !schedule.length) {
+    ganttContainer.innerHTML = '<div class="empty-state">// run scheduler to see gantt</div>';
+    ganttTimeline.textContent = '';
+    return;
+  }
+  lastSchedule = schedule;
+  const totalEnd = schedule[schedule.length-1].end || 1;
+  const minWidthPct = 3;
+
+  schedule.forEach(slot => {
+    const duration = slot.end - slot.start;
+    let widthPct = Math.max((duration / totalEnd) * 100, minWidthPct);
+    const seg = document.createElement('div');
+    seg.className = 'g-seg';
+    seg.style.width = widthPct + '%';
+    const grad = SEG_COLORS[slot.coreType]?.[slot.dvfsLevel.label] || 'linear-gradient(180deg,#888,#666)';
+    seg.style.background = grad;
+    seg.innerHTML = `
+      <div class="g-seg-pid">${slot.pid}</div>
+      <div class="g-seg-core">${slot.coreId}</div>
+      <div class="g-seg-dvfs">${slot.dvfsLevel.freq}M</div>
+    `;
+    seg.addEventListener('mousemove', e => {
+      document.getElementById('ttPid').textContent = slot.pid;
+      document.getElementById('ttStart').textContent = slot.start;
+      document.getElementById('ttEnd').textContent = slot.end;
+      document.getElementById('ttDur').textContent = duration + ' ms';
+      document.getElementById('ttCore').textContent = slot.coreId + ' (' + slot.coreType + ')';
+      document.getElementById('ttFreq').textContent = slot.dvfsLevel.freq + ' MHz (' + slot.dvfsLevel.label + ')';
+      document.getElementById('ttPower').textContent = slot.power + ' mW';
+      document.getElementById('ttTemp').textContent = slot.temp + '°C';
+      tooltip.style.left = (e.clientX + 14) + 'px';
+      tooltip.style.top  = (e.clientY + 14) + 'px';
+      tooltip.style.display = 'block';
+    });
+    seg.addEventListener('mouseleave', () => { tooltip.style.display = 'none'; });
+    ganttContainer.appendChild(seg);
+  });
+
+  // Timeline
+  const markers = [schedule[0].start, ...schedule.map(s => s.end)];
+  const unique = [...new Set(markers)];
+  ganttTimeline.innerHTML = unique.map(t => `<span>${t}</span>`).join('');
+}
+
+function renderMetrics(m) {
+  document.getElementById('metAvgTat').textContent = m.avgTat.toFixed(2);
+  document.getElementById('metAvgWt').textContent  = m.avgWt.toFixed(2);
+  document.getElementById('metThroughput').textContent = m.throughput + '/ms';
+  document.getElementById('metTotalEnergy').textContent = m.totalEnergy.toLocaleString();
+  document.getElementById('metEnergySaved').textContent = m.energySaved + '%';
+  document.getElementById('metMaxTemp').textContent = m.maxTemp + '°C';
+  document.getElementById('energyScoreVal').textContent = m.effScore;
+  const offset = 251.2 - (251.2 * m.effScore / 100);
+  document.getElementById('scoreCircle').style.strokeDashoffset = offset;
+  const scoreColor = m.effScore > 70 ? 'var(--accent)' : m.effScore > 40 ? 'var(--warn)' : 'var(--danger)';
+  document.getElementById('scoreCircle').style.stroke = scoreColor;
+  document.getElementById('energyScoreVal').style.color = scoreColor;
+
+  metricsTableBody.innerHTML = '';
+  m.rows.forEach(r => {
+    const tr = document.createElement('tr');
+    const tempClass = r.temp > 80 ? 'red' : r.temp > 65 ? 'amber' : 'green';
+    tr.innerHTML = `
+      <td style="font-weight:600;color:#fff">${r.pid}</td>
+      <td>${r.ct}</td>
+      <td class="amber">${r.tat}</td>
+      <td>${r.wt}</td>
+      <td class="${r.coreId.startsWith('P') ? 'badge-p' : 'badge-e'}">${r.coreId}</td>
+      <td style="color:var(--muted)">${r.freq}</td>
+      <td class="amber">${r.power}</td>
+      <td class="${tempClass}">${r.temp}</td>
+    `;
+    metricsTableBody.appendChild(tr);
+  });
+}
+
+function updateCoreViz(finalTemps) {
+  const coreEls = ['core0','core1','core2','core3'];
+  coreEls.forEach((id, i) => {
+    const el = document.getElementById(id);
+    const core = CORES[i];
+    const temp = finalTemps[i];
+    const thermalLimitVal = parseInt(thermalLimit.value, 10) || 85;
+    const isHot = temp >= thermalLimitVal - 5;
+    el.className = `core-chip ${core.type}${isHot ? ' hot' : ''}`;
+    const freqEl = el.querySelector('.core-chip-freq');
+    freqEl.textContent = core.baseFreq + ' MHz';
+    freqEl.className = 'core-chip-freq ' + (core.type === 'p-core' ? 'green' : 'blue');
+    el.querySelector('.core-chip-temp').textContent = `🌡 ${Math.round(temp)}°C`;
+  });
+  const pTemp = ((finalTemps[0] + finalTemps[1]) / 2);
+  const eTemp = ((finalTemps[2] + finalTemps[3]) / 2);
+  document.getElementById('pCoreTemp').textContent = pTemp.toFixed(1) + '°C';
+  document.getElementById('eCoreTemp').textContent = eTemp.toFixed(1) + '°C';
+  document.getElementById('pCoreThermalFill').style.width = Math.min(100, pTemp) + '%';
+  document.getElementById('eCoreThermalFill').style.width = Math.min(100, eTemp) + '%';
+}
+
+function renderDvfsLog(dvfsLog) {
+  const panel = document.getElementById('dvfsPanel');
+  panel.style.display = 'block';
+  document.getElementById('dvfsLog').innerHTML = dvfsLog.map(line => `<div>${line}</div>`).join('');
+}
+
+function resetResults() {
+  ganttContainer.innerHTML = '<div class="empty-state">// run scheduler to see gantt</div>';
+  ganttTimeline.textContent = '';
+  metricsTableBody.innerHTML = '';
+  document.getElementById('metAvgTat').textContent = '-';
+  document.getElementById('metAvgWt').textContent = '-';
+  document.getElementById('metThroughput').textContent = '-';
+  document.getElementById('metTotalEnergy').textContent = '-';
+  document.getElementById('metEnergySaved').textContent = '-';
+  document.getElementById('metMaxTemp').textContent = '-';
+  document.getElementById('energyScoreVal').textContent = '-';
+  document.getElementById('scoreCircle').style.strokeDashoffset = 251.2;
+  document.getElementById('dvfsPanel').style.display = 'none';
+  lastSchedule = null;
+}
+
+// ══════════════════════════════════════════════
+// EVENT HANDLERS
+// ══════════════════════════════════════════════
+addProcessBtn.addEventListener('click', () => {
+  const arrival  = parseInt(arrivalInput.value, 10);
+  const burst    = parseInt(burstInput.value, 10);
+  const priority = parseInt(priorityInput.value, 10);
+  if (isNaN(arrival) || isNaN(burst) || isNaN(priority) || burst <= 0 || arrival < 0) {
+    alert('Please enter valid values.'); return;
+  }
+  let pid = pidInput.value.trim() || ('P' + autoPidCounter++);
+  if (processes.some(p => p.pid === pid)) pid = 'P' + autoPidCounter++;
+  const p = {
+    pid, arrival, burst, priority,
+    workloadType: workloadType.value,
+    powerProfile: powerProfile.value,
+    coreAffinity: coreAffinity.value,
+    predictedBurst: 0
+  };
+  p.predictedBurst = predictBurst(p);
+  processes.push(p);
+  pidInput.value = ''; arrivalInput.value = '0'; burstInput.value = '6'; priorityInput.value = '2';
+  renderProcessTable();
+  renderPredictionPanel();
+  resetResults();
+});
+
+[pidInput, arrivalInput, burstInput, priorityInput].forEach(inp => {
+  inp.addEventListener('keydown', e => { if (e.key === 'Enter') addProcessBtn.click(); });
+});
+
+clearProcessBtn.addEventListener('click', () => {
+  processes = []; autoPidCounter = 1;
+  renderProcessTable(); renderPredictionPanel(); resetResults();
+});
+
+document.querySelectorAll('.algo-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.algo-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    selectedAlgo = btn.dataset.algo;
+    const map = { fcfs: 'FCFS', sjf: 'SJF', rr: 'Round Robin', priority: 'Priority', energy: 'Energy-First', thermal: 'Thermal-Aware' };
+    selectedAlgoLabel.textContent = map[selectedAlgo] || '-';
+    resetResults();
+  });
+});
+
+runBtn.addEventListener('click', () => {
+  if (!selectedAlgo) { alert('Select an algorithm.'); return; }
+  if (!processes.length) { alert('Add at least one process.'); return; }
+
+  const procs = JSON.parse(JSON.stringify(processes));
+  const coreTemps = CORES.map(c => c.idleTemp);
+  let orderedProcs;
+
+  if (selectedAlgo === 'fcfs')     orderedProcs = fcfsAlgo(procs);
+  else if (selectedAlgo === 'sjf') orderedProcs = sjfAlgo(procs);
+  else if (selectedAlgo === 'priority') orderedProcs = priorityAlgo(procs);
+  else if (selectedAlgo === 'energy')  orderedProcs = energyFirstAlgo(procs);
+  else if (selectedAlgo === 'thermal') orderedProcs = thermalAwareAlgo(procs, coreTemps);
+
+  let result;
+  if (selectedAlgo === 'rr') {
+    result = rrSchedule(procs);
+  } else {
+    result = buildSchedule(orderedProcs);
+  }
+
+  const metrics = calculateMetrics(procs, result.schedule);
+  renderGantt(result.schedule);
+  renderMetrics(metrics);
+  updateCoreViz(result.finalTemps);
+  renderDvfsLog(result.dvfsLog);
+});
+
+presetBtn.addEventListener('click', () => {
+  processes = [
+    { pid:'P1', arrival:0, burst:8,  priority:2, workloadType:'cpu',      powerProfile:'performance', coreAffinity:'auto',   predictedBurst:0 },
+    { pid:'P2', arrival:1, burst:4,  priority:1, workloadType:'io',       powerProfile:'power-save',  coreAffinity:'e-core', predictedBurst:0 },
+    { pid:'P3', arrival:2, burst:12, priority:3, workloadType:'mixed',    powerProfile:'normal',      coreAffinity:'auto',   predictedBurst:0 },
+    { pid:'P4', arrival:3, burst:6,  priority:1, workloadType:'realtime', powerProfile:'performance', coreAffinity:'p-core', predictedBurst:0 },
+    { pid:'P5', arrival:5, burst:3,  priority:4, workloadType:'io',       powerProfile:'power-save',  coreAffinity:'e-core', predictedBurst:0 },
+  ];
+  processes.forEach(p => { p.predictedBurst = predictBurst(p); });
+  autoPidCounter = 6;
+  renderProcessTable(); renderPredictionPanel(); resetResults();
+});
+
+exportCsvBtn.addEventListener('click', () => {
+  if (!processes.length) { alert('No processes to export.'); return; }
+  const headers = ['PID','Arrival','Burst','Priority','WorkloadType','PowerProfile','CoreAffinity','PredictedBurst'];
+  const rows = processes.map(p => [p.pid,p.arrival,p.burst,p.priority,p.workloadType,p.powerProfile,p.coreAffinity,p.predictedBurst]);
+  const csv = [headers,...rows].map(r => r.join(',')).join('\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv],{type:'text/csv'}));
+  a.download = 'energy_schedule.csv'; a.click();
+});
+
+exportPngBtn.addEventListener('click', () => {
+  if (!lastSchedule) { alert('Run the scheduler first.'); return; }
+  html2canvas(document.querySelector('.container'), { backgroundColor: '#060a0f', scale: 1.5 }).then(c => {
+    const a = document.createElement('a');
+    a.download = 'cpu_schedule_report.png';
+    a.href = c.toDataURL('image/png');
+    a.click();
+  });
+});
+
+// Initial render
+renderProcessTable(); renderPredictionPanel(); resetResults();
+</script>
+</body>
+</html>
